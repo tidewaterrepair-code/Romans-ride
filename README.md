@@ -2,7 +2,7 @@
 
 An interactive map for group ebike rides around Chic's Beach, Virginia Beach.
 
-Open it on a phone: https://tidewaterrepair-code.github.io/romans-ride/
+Open it on a phone: https://tidewaterrepair-code.github.io/Romans-ride/
 
 ## What it does now
 
@@ -21,3 +21,7 @@ Map edits are saved in the browser on the phone that made them. Use **Layers →
 3. Adding other riders and their parents.
 
 Map data © OpenStreetMap contributors.
+
+## Publishing
+
+The site is served by GitHub Pages from the `gh-pages` branch. After changing `main`, publish with `git push origin main:gh-pages`.
