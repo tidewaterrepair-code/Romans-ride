@@ -1,0 +1,16 @@
+# Traccar web app and API on 443, the ride map at /map/, and the phone tracking port on 5055, all over HTTPS.
+{$RIDE_HOST} {
+	encode gzip
+	redir /map /map/
+	handle_path /map/* {
+		root * /srv/repo
+		file_server
+	}
+	handle {
+		reverse_proxy traccar:8082
+	}
+}
+
+{$RIDE_HOST}:5055 {
+	reverse_proxy traccar:5055
+}

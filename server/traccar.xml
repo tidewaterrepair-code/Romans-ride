@@ -1,0 +1,12 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<!DOCTYPE properties SYSTEM 'http://java.sun.com/dtd/properties.dtd'>
+<properties>
+    <entry key='database.driver'>org.h2.Driver</entry>
+    <entry key='database.url'>jdbc:h2:./data/database</entry>
+    <entry key='database.user'>sa</entry>
+    <entry key='database.password'></entry>
+    <!-- Let the GitHub-hosted ride map call the API. -->
+    <entry key='web.origin'>https://tidewaterrepair-code.github.io</entry>
+    <!-- Only the phone tracking protocol is needed; Caddy forwards it with HTTPS. -->
+    <entry key='protocols.enable'>osmand</entry>
+</properties>

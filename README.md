@@ -14,10 +14,21 @@ Open it on a phone: https://tidewaterrepair-code.github.io/Romans-ride/
 
 Map edits are saved in the browser on the phone that made them. Use **Layers → Copy map data** and **Load map data** to move them to another phone.
 
+## Tracking server
+
+Live tracking runs on [Traccar](https://www.traccar.org), self-hosted on a VPS behind Caddy for HTTPS.
+On a fresh Ubuntu or Debian VPS:
+
+```
+curl -fsSL https://raw.githubusercontent.com/tidewaterrepair-code/Romans-ride/main/server/install.sh | sudo bash
+```
+
+It prints three addresses: the tracking dashboard, the ride map served from the same server, and the server URL to enter in the Traccar Client app on each rider's phone. Files are in [`server/`](server/).
+
 ## Coming next
 
-1. Live tracking from Roman's phone (OwnTracks app with a login per rider).
-2. Parent dashboard and alerts: leaving the zone, idle too long, possible crash, low battery.
+1. Show live riders on the ride map, and sync the riding zone to the server.
+2. Alerts: leaving the zone, idle too long, possible crash, low battery.
 3. Adding other riders and their parents.
 
 Map data © OpenStreetMap contributors.

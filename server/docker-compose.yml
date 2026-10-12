@@ -1,0 +1,29 @@
+# Copied to /opt/romans-ride by install.sh; paths below are relative to that folder.
+services:
+  traccar:
+    image: traccar/traccar:latest
+    restart: unless-stopped
+    volumes:
+      - ./data:/opt/traccar/data
+      - ./logs:/opt/traccar/logs
+      - ./repo/server/traccar.xml:/opt/traccar/conf/traccar.xml:ro
+
+  caddy:
+    image: caddy:2
+    restart: unless-stopped
+    depends_on: [traccar]
+    ports:
+      - "80:80"
+      - "443:443"
+      - "5055:5055"
+    environment:
+      - RIDE_HOST=${RIDE_HOST}
+    volumes:
+      - ./repo/server/Caddyfile:/etc/caddy/Caddyfile:ro
+      - ./repo:/srv/repo:ro
+      - caddy_data:/data
+      - caddy_config:/config
+
+volumes:
+  caddy_data:
+  caddy_config:
