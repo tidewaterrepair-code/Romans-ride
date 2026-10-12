@@ -1,0 +1,546 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="theme-color" content="#14563a">
+<title>Roman's Ride Map</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Overpass:wght@400;600;800&family=Overpass+Mono:wght@400;600&display=swap">
+<style>
+/* Layout: full-screen map with a highway-sign header, floating map buttons, and a bottom sheet for editing */
+:root{
+  --bg:#f3f5f2; --surface:#ffffff; --fg:#17201b; --muted:#5b665f; --line:#d5dcd6;
+  --sign:#14563a; --sign-fg:#ffffff;            /* guide-sign green: riding zone, primary actions */
+  --danger:#c62828; --shortcut:#d89a00; --escape:#1f5fbf; --meet:#14563a; --note:#6b5aa6;
+  --ok:#2e7d32; --warn:#c62828;
+  --shadow:0 6px 24px rgba(15,30,20,.18);
+  --tile-filter:none;
+  --font-ui:"Overpass","Helvetica Neue",Arial,sans-serif;
+  --font-data:"Overpass Mono",ui-monospace,Menlo,monospace;
+  color-scheme:light;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --bg:#0f1512; --surface:#18211c; --fg:#e7ede9; --muted:#9aa8a0; --line:#2b3831;
+  --sign:#2f8f62; --sign-fg:#ffffff; --danger:#ef5350; --shortcut:#f2b632; --escape:#5b9cf2; --meet:#3fae7a; --note:#a493e0;
+  --ok:#5cc57a; --warn:#ef5350; --shadow:0 6px 24px rgba(0,0,0,.5);
+  --tile-filter:invert(1) hue-rotate(180deg) brightness(.85) contrast(.9) saturate(.6);
+  color-scheme:dark;
+}}
+:root[data-theme="dark"]{
+  --bg:#0f1512; --surface:#18211c; --fg:#e7ede9; --muted:#9aa8a0; --line:#2b3831;
+  --sign:#2f8f62; --sign-fg:#ffffff; --danger:#ef5350; --shortcut:#f2b632; --escape:#5b9cf2; --meet:#3fae7a; --note:#a493e0;
+  --ok:#5cc57a; --warn:#ef5350; --shadow:0 6px 24px rgba(0,0,0,.5);
+  --tile-filter:invert(1) hue-rotate(180deg) brightness(.85) contrast(.9) saturate(.6);
+  color-scheme:dark;
+}
+*{box-sizing:border-box}
+html,body{height:100%;margin:0}
+body{background:var(--bg);color:var(--fg);font:15px/1.4 var(--font-ui);display:flex;flex-direction:column;overflow:hidden}
+button{font:inherit;color:inherit;cursor:pointer}
+button:focus-visible,input:focus-visible,textarea:focus-visible,select:focus-visible{outline:3px solid var(--shortcut);outline-offset:2px}
+[hidden]{display:none!important}
+
+.bar{background:var(--sign);color:var(--sign-fg);padding:calc(env(safe-area-inset-top,0px) + 10px) 16px 10px;display:flex;align-items:center;gap:12px;z-index:1000;border-bottom:3px solid rgba(255,255,255,.85)}
+.brand{flex:1;min-width:0}
+.brand h1{margin:0;font-weight:800;font-size:19px;letter-spacing:.01em;line-height:1.1;text-wrap:balance}
+.brand p{margin:2px 0 0;font-size:12px;opacity:.85;letter-spacing:.04em;text-transform:uppercase}
+.bar button{background:rgba(255,255,255,.14);border:1.5px solid rgba(255,255,255,.7);border-radius:8px;padding:7px 12px;font-weight:600;color:var(--sign-fg)}
+
+#map{flex:1;min-height:0;background:var(--bg)}
+.leaflet-tile-pane{filter:var(--tile-filter)}
+.leaflet-container{font-family:var(--font-ui)}
+.leaflet-control-attribution{font-size:10px}
+
+.status{position:absolute;left:16px;right:16px;top:calc(env(safe-area-inset-top,0px) + 76px);z-index:900;display:flex;justify-content:center;pointer-events:none}
+.chip{pointer-events:auto;background:var(--surface);color:var(--fg);border:1px solid var(--line);box-shadow:var(--shadow);border-radius:999px;padding:7px 14px;font-weight:600;font-size:14px;display:flex;align-items:center;gap:8px}
+.chip .dot{width:10px;height:10px;border-radius:50%;background:var(--muted)}
+.chip.in .dot{background:var(--ok)} .chip.out .dot{background:var(--warn)}
+.chip.out{border-color:var(--warn)}
+
+.fabs{position:absolute;right:16px;bottom:calc(env(safe-area-inset-bottom,0px) + 92px);z-index:900;display:flex;flex-direction:column;gap:10px}
+.fab{width:46px;height:46px;border-radius:12px;background:var(--surface);border:1px solid var(--line);box-shadow:var(--shadow);display:grid;place-items:center;padding:0}
+.fab svg{width:22px;height:22px;stroke:var(--fg);fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+.fab.on{background:var(--escape);border-color:var(--escape)} .fab.on svg{stroke:#fff}
+
+.toolbar{background:var(--surface);border-top:1px solid var(--line);padding:10px 16px calc(env(safe-area-inset-bottom,0px) + 10px);display:flex;gap:8px;z-index:1000}
+.toolbar button{flex:1;min-width:0;border:1px solid var(--line);background:var(--bg);border-radius:10px;padding:10px 6px;font-weight:600;font-size:14px;display:flex;flex-direction:column;align-items:center;gap:3px}
+.toolbar svg{width:20px;height:20px;fill:none;stroke-width:2.2;stroke-linecap:round;stroke-linejoin:round}
+
+.modebar{background:var(--surface);border-top:3px solid var(--sign);padding:10px 16px calc(env(safe-area-inset-bottom,0px) + 10px);z-index:1000;display:flex;flex-direction:column;gap:8px}
+.modebar .hint{margin:0;font-size:14px;color:var(--muted)}
+.modebar .hint b{color:var(--fg)}
+.row{display:flex;gap:8px;flex-wrap:wrap}
+.btn{border:1px solid var(--line);background:var(--bg);border-radius:10px;padding:9px 14px;font-weight:600;font-size:14px}
+.btn.primary{background:var(--sign);border-color:var(--sign);color:var(--sign-fg)}
+.btn.danger{color:var(--danger);border-color:var(--danger);background:transparent}
+.btn.danger.armed{background:var(--danger);color:#fff}
+.btn:disabled{opacity:.45;cursor:default}
+.seg{display:flex;border:1px solid var(--line);border-radius:10px;overflow:hidden}
+.seg button{border:0;background:var(--bg);padding:8px 12px;font-weight:600;font-size:13px;display:flex;align-items:center;gap:6px}
+.seg button+button{border-left:1px solid var(--line)}
+.seg button[aria-pressed="true"]{background:var(--fg);color:var(--bg)}
+.sw{width:10px;height:10px;border-radius:3px;display:inline-block}
+
+.sheet{position:fixed;left:0;right:0;bottom:0;z-index:2000;background:var(--surface);color:var(--fg);border-radius:16px 16px 0 0;box-shadow:0 -8px 30px rgba(0,0,0,.25);max-height:78%;overflow:auto;padding:14px 16px calc(env(safe-area-inset-bottom,0px) + 16px)}
+.sheet .grab{width:40px;height:4px;border-radius:2px;background:var(--line);margin:0 auto 10px}
+.sheet h2{margin:0 0 4px;font-size:18px;font-weight:800;text-wrap:balance}
+.sheet h3{margin:16px 0 6px;font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
+.sheet label{display:block;font-size:13px;font-weight:600;margin:10px 0 4px}
+.sheet input,.sheet textarea{width:100%;font:inherit;color:var(--fg);background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:9px 10px}
+.sheet textarea{min-height:64px;resize:vertical}
+.sheet .actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:14px}
+.meta{font-family:var(--font-data);font-size:12px;color:var(--muted);font-variant-numeric:tabular-nums}
+.scrim{position:fixed;inset:0;background:rgba(0,0,0,.25);z-index:1999}
+
+.list{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:2px}
+.list li{display:flex;align-items:center;gap:10px;padding:8px 4px;border-bottom:1px solid var(--line)}
+.list li button.link{flex:1;min-width:0;text-align:left;background:none;border:0;padding:0;font-weight:600}
+.list .empty{color:var(--muted);font-size:14px;border:0}
+.toggle{display:flex;align-items:center;gap:10px;padding:7px 0;font-weight:600}
+.toggle input{width:20px;height:20px;accent-color:var(--sign)}
+.tips{margin:0;padding-left:18px;color:var(--fg);font-size:14px}
+.tips li{margin:4px 0}
+
+.toast{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(env(safe-area-inset-bottom,0px) + 90px);z-index:3000;background:var(--fg);color:var(--bg);padding:9px 16px;border-radius:999px;font-weight:600;font-size:14px;box-shadow:var(--shadow);max-width:calc(100% - 32px)}
+
+/* map icons */
+.pin{width:28px;height:28px;border-radius:50% 50% 50% 0;transform:rotate(-45deg);border:2.5px solid #fff;box-shadow:0 2px 6px rgba(0,0,0,.4);display:grid;place-items:center}
+.pin span{transform:rotate(45deg);color:#fff;font:800 13px/1 var(--font-ui)}
+.vtx{width:22px;height:22px;border-radius:50%;background:#fff;border:3px solid var(--sign);box-shadow:0 1px 4px rgba(0,0,0,.4)}
+.vtx.sel{background:var(--danger);border-color:#fff}
+.mid{width:18px;height:18px;border-radius:50%;background:rgba(255,255,255,.85);border:2px dashed var(--sign);display:grid;place-items:center;color:var(--sign);font:800 13px/1 var(--font-ui)}
+.me{width:18px;height:18px;border-radius:50%;background:var(--escape);border:3px solid #fff;box-shadow:0 0 0 6px rgba(31,95,191,.25)}
+.zone-label{background:transparent;border:0;box-shadow:none;color:var(--sign);font:800 12px/1 var(--font-ui);letter-spacing:.08em;text-transform:uppercase;text-shadow:0 0 3px var(--bg),0 0 3px var(--bg)}
+.zone-label::before{display:none}
+@media (prefers-reduced-motion:reduce){*{scroll-behavior:auto!important;transition:none!important;animation:none!important}}
+</style>
+</head>
+<body>
+<header class="bar">
+  <div class="brand"><h1>Roman's Ride Map</h1><p>Chic's Beach · Virginia Beach</p></div>
+  <button id="layersBtn" type="button" aria-haspopup="dialog">Layers</button>
+</header>
+
+<div id="map" role="application" aria-label="Ride map"></div>
+
+<div class="status"><div id="zoneChip" class="chip" hidden><span class="dot"></span><span id="zoneChipText"></span></div></div>
+
+<div class="fabs">
+  <button class="fab" id="locateBtn" type="button" title="Show my location" aria-label="Show my location" aria-pressed="false"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/></svg></button>
+  <button class="fab" id="fitBtn" type="button" title="Show the whole riding zone" aria-label="Show the whole riding zone"><svg viewBox="0 0 24 24"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg></button>
+</div>
+
+<nav class="toolbar" id="toolbar">
+  <button type="button" id="zoneBtn"><svg viewBox="0 0 24 24" style="stroke:var(--sign)"><path d="M4 7l6-3 9 4-2 11-11-2z"/></svg>Edit zone</button>
+  <button type="button" id="spotBtn"><svg viewBox="0 0 24 24" style="stroke:var(--danger)"><path d="M12 21s-7-6.5-7-12a7 7 0 0 1 14 0c0 5.5-7 12-7 12z"/><circle cx="12" cy="9" r="2.5"/></svg>Add spot</button>
+  <button type="button" id="routeBtn"><svg viewBox="0 0 24 24" style="stroke:var(--shortcut)"><path d="M4 19c3-1 3-6 7-7s4-6 9-7"/><circle cx="4" cy="19" r="1.5"/><circle cx="20" cy="5" r="1.5"/></svg>Draw route</button>
+</nav>
+
+<div class="modebar" id="modebar" hidden></div>
+
+<div class="scrim" id="scrim" hidden></div>
+<section class="sheet" id="sheet" role="dialog" aria-modal="true" aria-labelledby="sheetTitle" hidden></section>
+<div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<script>
+(function(){
+'use strict';
+
+/* ---------- data ---------- */
+const STORE_KEY = 'romans-ride-map-v1';
+const CENTER = [36.9135, -76.1105];   // Chic's Beach, approximate
+const TYPES = {
+  danger:   {label:'Danger spot',  short:'Danger',   color:'--danger',   glyph:'!'},
+  meet:     {label:'Meet-up point',short:'Meet-up',  color:'--meet',     glyph:'M'},
+  note:     {label:'Note',         short:'Note',     color:'--note',     glyph:'i'},
+  shortcut: {label:'Shortcut',     short:'Shortcut', color:'--shortcut'},
+  escape:   {label:'Escape route', short:'Escape',   color:'--escape'}
+};
+const uid = () => Math.random().toString(36).slice(2,10);
+const css = name => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+
+function starterState(){
+  // A rough placeholder box around Chic's Beach. It is meant to be dragged into the real boundary.
+  return {
+    version:1, starter:true,
+    zone:[[36.9235,-76.1330],[36.9235,-76.0905],[36.9035,-76.0905],[36.9035,-76.1330]],
+    spots:[], routes:[], updated:null
+  };
+}
+function load(){
+  try{ const raw = localStorage.getItem(STORE_KEY); if(raw){ const s = JSON.parse(raw); if(s && Array.isArray(s.zone)) return s; } }catch(e){}
+  return starterState();
+}
+let state = load();
+function save(msg){
+  state.updated = new Date().toISOString();
+  try{ localStorage.setItem(STORE_KEY, JSON.stringify(state)); }catch(e){ toast('Could not save on this device'); return; }
+  if(msg) toast(msg);
+}
+
+/* ---------- map ---------- */
+const map = L.map('map',{zoomControl:false, tap:true}).setView(CENTER, 15);
+L.control.zoom({position:'topleft'}).addTo(map);
+L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png',{
+  maxZoom:19, attribution:'&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+}).addTo(map);
+L.control.scale({imperial:true, metric:false, position:'bottomleft'}).addTo(map);
+
+const layers = {
+  zone: L.layerGroup().addTo(map),
+  danger: L.layerGroup().addTo(map),
+  meet: L.layerGroup().addTo(map),
+  note: L.layerGroup().addTo(map),
+  shortcut: L.layerGroup().addTo(map),
+  escape: L.layerGroup().addTo(map),
+  edit: L.layerGroup().addTo(map),
+  me: L.layerGroup().addTo(map)
+};
+let zonePoly = null;
+const spotMarkers = new Map();
+
+function pinIcon(type){
+  const t = TYPES[type];
+  return L.divIcon({className:'', iconSize:[28,28], iconAnchor:[14,28],
+    html:`<div class="pin" style="background:var(${t.color})"><span>${t.glyph}</span></div>`});
+}
+function render(){
+  layers.zone.clearLayers();
+  ['danger','meet','note','shortcut','escape'].forEach(k=>layers[k].clearLayers());
+  if(state.zone.length >= 3){
+    zonePoly = L.polygon(state.zone,{color:css('--sign'), weight:3, fillOpacity:.07, dashArray: state.starter ? '8 6' : null, interactive:false}).addTo(layers.zone);
+    zonePoly.bindTooltip(state.starter ? 'Starter zone · drag to fit' : 'Riding zone',{permanent:true, direction:'center', className:'zone-label'});
+  } else zonePoly = null;
+  state.routes.forEach(r=>{
+    const line = L.polyline(r.pts,{color:css(TYPES[r.type].color), weight:6, opacity:.9, dashArray: r.type==='shortcut' ? '10 8' : null}).addTo(layers[r.type]);
+    line.on('click', e=>{ if(mode==='view'){ L.DomEvent.stop(e); openItem('route', r.id); } });
+  });
+  state.spots.forEach(s=>{
+    const m = L.marker([s.lat,s.lng],{icon:pinIcon(s.type), title:s.name||TYPES[s.type].label, keyboard:true}).addTo(layers[s.type]);
+    m.on('click', ()=>{ if(mode==='view') openItem('spot', s.id); });
+    spotMarkers.set(s.id, m);
+  });
+  updateZoneChip();
+}
+
+/* ---------- geometry ---------- */
+function inside(pt, poly){
+  let x = pt[1], y = pt[0], ins = false;
+  for(let i=0,j=poly.length-1;i<poly.length;j=i++){
+    const xi=poly[i][1], yi=poly[i][0], xj=poly[j][1], yj=poly[j][0];
+    if(((yi>y)!==(yj>y)) && (x < (xj-xi)*(y-yi)/(yj-yi)+xi)) ins = !ins;
+  }
+  return ins;
+}
+
+/* ---------- ui helpers ---------- */
+const $ = id => document.getElementById(id);
+let toastTimer;
+function toast(t){ const el=$('toast'); el.textContent=t; el.hidden=false; clearTimeout(toastTimer); toastTimer=setTimeout(()=>el.hidden=true,2400); }
+function esc(s){ return String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+function openSheet(html){ const sh=$('sheet'); sh.innerHTML='<div class="grab"></div>'+html; sh.hidden=false; $('scrim').hidden=false; const f=sh.querySelector('input,textarea,button'); if(f) f.focus({preventScroll:true}); }
+function closeSheet(){ $('sheet').hidden=true; $('scrim').hidden=true; $('sheet').innerHTML=''; }
+$('scrim').addEventListener('click', ()=>{ if(sheetDismissable) closeSheet(); });
+let sheetDismissable = true;
+document.addEventListener('keydown', e=>{ if(e.key==='Escape' && !$('sheet').hidden && sheetDismissable) closeSheet(); });
+
+function armDelete(btn, onConfirm){
+  btn.addEventListener('click', ()=>{
+    if(btn.classList.contains('armed')){ onConfirm(); return; }
+    btn.classList.add('armed'); btn.textContent='Tap again to delete';
+    setTimeout(()=>{ if(btn.isConnected){ btn.classList.remove('armed'); btn.textContent='Delete'; } },3000);
+  });
+}
+
+/* ---------- modes ---------- */
+let mode = 'view';
+function setMode(m, barHtml){
+  mode = m;
+  $('toolbar').hidden = m !== 'view';
+  document.querySelector('.fabs').hidden = m !== 'view';
+  const mb = $('modebar');
+  mb.hidden = m === 'view';
+  mb.innerHTML = barHtml || '';
+  map.getContainer().style.cursor = (m==='spot'||m==='route'||m==='zoneDraw') ? 'crosshair' : '';
+}
+function exitMode(){ layers.edit.clearLayers(); setMode('view'); render(); }
+
+/* ---- zone editing ---- */
+let zoneDraft = null, selVtx = -1;
+function startZone(){
+  zoneDraft = state.zone.map(p=>p.slice());
+  selVtx = -1;
+  setMode('zone', `
+    <p class="hint"><b>Drag the white dots</b> to move the boundary. Drag a <b>+</b> to add a corner. Tap a dot to select it.</p>
+    <div class="row">
+      <button class="btn" id="zRemove" type="button" disabled>Remove dot</button>
+      <button class="btn" id="zRedraw" type="button">Start over</button>
+      <span style="flex:1"></span>
+      <button class="btn" id="zCancel" type="button">Cancel</button>
+      <button class="btn primary" id="zDone" type="button">Save zone</button>
+    </div>`);
+  layers.zone.clearLayers();
+  $('zRemove').onclick = ()=>{ if(selVtx>=0 && zoneDraft.length>3){ zoneDraft.splice(selVtx,1); selVtx=-1; drawZoneEditor(); } };
+  $('zRedraw').onclick = startZoneRedraw;
+  $('zCancel').onclick = ()=>{ zoneDraft=null; exitMode(); };
+  $('zDone').onclick = ()=>{ state.zone = zoneDraft; state.starter = false; zoneDraft=null; save('Riding zone saved'); exitMode(); };
+  drawZoneEditor();
+}
+function drawZoneEditor(){
+  layers.edit.clearLayers();
+  const poly = L.polygon(zoneDraft,{color:css('--sign'), weight:3, fillOpacity:.12, interactive:false}).addTo(layers.edit);
+  const rm = $('zRemove'); if(rm) rm.disabled = !(selVtx>=0 && zoneDraft.length>3);
+  zoneDraft.forEach((p,i)=>{
+    const m = L.marker(p,{draggable:true, icon:L.divIcon({className:'', iconSize:[22,22], iconAnchor:[11,11], html:`<div class="vtx${i===selVtx?' sel':''}"></div>`}), zIndexOffset:1000, keyboard:true, title:'Zone corner'}).addTo(layers.edit);
+    m.on('drag', e=>{ const ll=e.target.getLatLng(); zoneDraft[i]=[ll.lat,ll.lng]; poly.setLatLngs(zoneDraft); });
+    m.on('dragend', ()=>drawZoneEditor());
+    m.on('click', ()=>{ selVtx = (selVtx===i ? -1 : i); drawZoneEditor(); });
+  });
+  zoneDraft.forEach((p,i)=>{
+    const q = zoneDraft[(i+1)%zoneDraft.length];
+    const mid = [(p[0]+q[0])/2,(p[1]+q[1])/2];
+    let inserted = false;
+    const m = L.marker(mid,{draggable:true, icon:L.divIcon({className:'', iconSize:[18,18], iconAnchor:[9,9], html:'<div class="mid">+</div>'}), zIndexOffset:500, title:'Add a corner here'}).addTo(layers.edit);
+    m.on('dragstart', ()=>{ zoneDraft.splice(i+1,0,mid.slice()); inserted=true; });
+    m.on('drag', e=>{ if(!inserted) return; const ll=e.target.getLatLng(); zoneDraft[i+1]=[ll.lat,ll.lng]; poly.setLatLngs(zoneDraft); });
+    m.on('dragend', ()=>drawZoneEditor());
+    m.on('click', ()=>{ zoneDraft.splice(i+1,0,mid.slice()); drawZoneEditor(); });
+  });
+}
+function startZoneRedraw(){
+  zoneDraft = [];
+  setMode('zoneDraw', `
+    <p class="hint"><b>Tap the map</b> around the area Roman may ride, one corner at a time. <span id="zCount" class="meta"></span></p>
+    <div class="row">
+      <button class="btn" id="zUndo" type="button">Undo</button>
+      <span style="flex:1"></span>
+      <button class="btn" id="zCancel2" type="button">Cancel</button>
+      <button class="btn primary" id="zClose" type="button" disabled>Close shape</button>
+    </div>`);
+  layers.edit.clearLayers();
+  const upd = ()=>{
+    layers.edit.clearLayers();
+    if(zoneDraft.length) L.polyline(zoneDraft.concat(zoneDraft.length>2?[zoneDraft[0]]:[]),{color:css('--sign'),weight:3,dashArray:'6 6'}).addTo(layers.edit);
+    zoneDraft.forEach(p=>L.marker(p,{interactive:false, icon:L.divIcon({className:'',iconSize:[22,22],iconAnchor:[11,11],html:'<div class="vtx"></div>'})}).addTo(layers.edit));
+    $('zClose').disabled = zoneDraft.length < 3;
+    $('zCount').textContent = zoneDraft.length ? `${zoneDraft.length} corner${zoneDraft.length>1?'s':''}` : '';
+  };
+  zoneTap = ll=>{ zoneDraft.push([ll.lat,ll.lng]); upd(); };
+  $('zUndo').onclick = ()=>{ zoneDraft.pop(); upd(); };
+  $('zCancel2').onclick = ()=>{ zoneDraft=null; zoneTap=null; exitMode(); };
+  $('zClose').onclick = ()=>{ zoneTap=null; startZoneFromDraft(); };
+  upd();
+}
+let zoneTap = null;
+function startZoneFromDraft(){ const d = zoneDraft; startZone(); zoneDraft = d; drawZoneEditor(); }
+
+/* ---- spots ---- */
+let spotType = 'danger';
+function segHtml(id, keys, current){
+  return `<div class="seg" id="${id}" role="group">${keys.map(k=>`<button type="button" data-k="${k}" aria-pressed="${k===current}"><span class="sw" style="background:var(${TYPES[k].color})"></span>${TYPES[k].short}</button>`).join('')}</div>`;
+}
+function wireSeg(id, onPick){
+  $(id).querySelectorAll('button').forEach(b=>b.onclick=()=>{ $(id).querySelectorAll('button').forEach(x=>x.setAttribute('aria-pressed', x===b)); onPick(b.dataset.k); });
+}
+function startSpot(){
+  setMode('spot', `
+    <p class="hint"><b>Pick a type, then tap the map</b> where the spot is.</p>
+    <div class="row">${segHtml('spotSeg',['danger','meet','note'],spotType)}<span style="flex:1"></span><button class="btn" id="sCancel" type="button">Cancel</button></div>`);
+  wireSeg('spotSeg', k=>spotType=k);
+  $('sCancel').onclick = exitMode;
+}
+function spotForm(s, isNew){
+  const t = TYPES[s.type];
+  sheetDismissable = !isNew;
+  openSheet(`
+    <h2 id="sheetTitle">${isNew ? 'New '+t.label.toLowerCase() : esc(s.name || t.label)}</h2>
+    <div class="meta">${s.lat.toFixed(5)}, ${s.lng.toFixed(5)}</div>
+    <label for="fType">Type</label>${segHtml('fType',['danger','meet','note'],s.type)}
+    <label for="fName">Name</label><input id="fName" maxlength="80" value="${esc(s.name)}" placeholder="${s.type==='danger'?'e.g. Shore Dr crossing':'e.g. Bayfront parking lot'}">
+    <label for="fNote">What riders should know</label><textarea id="fNote" maxlength="500" placeholder="e.g. Cars turn fast here. Walk the bike across.">${esc(s.note)}</textarea>
+    <div class="actions">
+      <button class="btn primary" id="fSave" type="button">Save</button>
+      ${isNew ? '<button class="btn" id="fCancel" type="button">Cancel</button>' : '<button class="btn" id="fMove" type="button">Move</button><button class="btn danger" id="fDel" type="button">Delete</button>'}
+    </div>`);
+  let type = s.type;
+  wireSeg('fType', k=>type=k);
+  $('fSave').onclick = ()=>{
+    s.type = type; s.name = $('fName').value.trim(); s.note = $('fNote').value.trim();
+    if(isNew) state.spots.push(s);
+    save(isNew ? TYPES[s.type].label+' added' : 'Saved'); closeSheet(); sheetDismissable=true; exitMode();
+  };
+  if(isNew){ $('fCancel').onclick = ()=>{ closeSheet(); sheetDismissable=true; }; }
+  else {
+    armDelete($('fDel'), ()=>{ state.spots = state.spots.filter(x=>x.id!==s.id); save('Deleted'); closeSheet(); render(); });
+    $('fMove').onclick = ()=>moveSpot(s);
+  }
+}
+function moveSpot(s){
+  closeSheet();
+  setMode('move', `<p class="hint"><b>Drag the pin</b> to its exact spot.</p><div class="row"><span style="flex:1"></span><button class="btn primary" id="mDone" type="button">Done</button></div>`);
+  const m = spotMarkers.get(s.id); m.dragging.enable();
+  $('mDone').onclick = ()=>{ const ll=m.getLatLng(); s.lat=ll.lat; s.lng=ll.lng; m.dragging.disable(); save('Moved'); exitMode(); };
+}
+
+/* ---- routes ---- */
+let routeType = 'shortcut', routeDraft = null;
+function startRoute(){
+  routeDraft = [];
+  setMode('route', `
+    <p class="hint"><b>Tap along the path</b> from start to finish. <span id="rCount" class="meta"></span></p>
+    <div class="row">${segHtml('routeSeg',['shortcut','escape'],routeType)}</div>
+    <div class="row"><button class="btn" id="rUndo" type="button">Undo</button><span style="flex:1"></span><button class="btn" id="rCancel" type="button">Cancel</button><button class="btn primary" id="rDone" type="button" disabled>Finish</button></div>`);
+  wireSeg('routeSeg', k=>{ routeType=k; drawRouteDraft(); });
+  $('rUndo').onclick = ()=>{ routeDraft.pop(); drawRouteDraft(); };
+  $('rCancel').onclick = ()=>{ routeDraft=null; exitMode(); };
+  $('rDone').onclick = ()=>{ const r={id:uid(), type:routeType, name:'', note:'', pts:routeDraft}; routeDraft=null; layers.edit.clearLayers(); routeForm(r, true); };
+  drawRouteDraft();
+}
+function drawRouteDraft(){
+  layers.edit.clearLayers();
+  if(!routeDraft) return;
+  if(routeDraft.length) L.polyline(routeDraft,{color:css(TYPES[routeType].color), weight:6, dashArray: routeType==='shortcut'?'10 8':null}).addTo(layers.edit);
+  routeDraft.forEach(p=>L.circleMarker(p,{radius:5, color:'#fff', weight:2, fillColor:css(TYPES[routeType].color), fillOpacity:1, interactive:false}).addTo(layers.edit));
+  $('rDone').disabled = routeDraft.length < 2;
+  $('rCount').textContent = routeDraft.length ? `${routeDraft.length} point${routeDraft.length>1?'s':''}` : '';
+}
+function routeLengthMi(pts){ let d=0; for(let i=1;i<pts.length;i++) d += map.distance(pts[i-1],pts[i]); return d/1609.34; }
+function routeForm(r, isNew){
+  sheetDismissable = !isNew;
+  if(isNew){ L.polyline(r.pts,{color:css(TYPES[r.type].color), weight:6}).addTo(layers.edit); }
+  openSheet(`
+    <h2 id="sheetTitle">${isNew ? 'New '+TYPES[r.type].label.toLowerCase() : esc(r.name || TYPES[r.type].label)}</h2>
+    <div class="meta">${routeLengthMi(r.pts).toFixed(2)} mi · ${r.pts.length} points</div>
+    <label for="rType">Type</label>${segHtml('rType',['shortcut','escape'],r.type)}
+    <label for="rName">Name</label><input id="rName" maxlength="80" value="${esc(r.name)}" placeholder="${r.type==='escape'?'e.g. Beach to Shore Dr cut-through':'e.g. Back way to the bike path'}">
+    <label for="rNote">Notes</label><textarea id="rNote" maxlength="500" placeholder="e.g. Use if the group gets split up. Ends at the meet-up point.">${esc(r.note)}</textarea>
+    <div class="actions">
+      <button class="btn primary" id="rSave" type="button">Save</button>
+      ${isNew ? '<button class="btn" id="rDiscard" type="button">Discard</button>' : '<button class="btn danger" id="rDel" type="button">Delete</button>'}
+    </div>`);
+  let type = r.type;
+  wireSeg('rType', k=>type=k);
+  $('rSave').onclick = ()=>{
+    r.type=type; r.name=$('rName').value.trim(); r.note=$('rNote').value.trim();
+    if(isNew) state.routes.push(r);
+    save(TYPES[r.type].label+' saved'); closeSheet(); sheetDismissable=true; exitMode();
+  };
+  if(isNew) $('rDiscard').onclick = ()=>{ closeSheet(); sheetDismissable=true; exitMode(); };
+  else armDelete($('rDel'), ()=>{ state.routes = state.routes.filter(x=>x.id!==r.id); save('Deleted'); closeSheet(); render(); });
+}
+function openItem(kind, id){
+  if(kind==='spot'){ const s=state.spots.find(x=>x.id===id); if(s) spotForm(s,false); }
+  else { const r=state.routes.find(x=>x.id===id); if(r) routeForm(r,false); }
+}
+
+/* ---- map clicks ---- */
+map.on('click', e=>{
+  if(mode==='spot'){ spotForm({id:uid(), type:spotType, name:'', note:'', lat:e.latlng.lat, lng:e.latlng.lng}, true); }
+  else if(mode==='route' && routeDraft){ routeDraft.push([e.latlng.lat,e.latlng.lng]); drawRouteDraft(); }
+  else if(mode==='zoneDraw' && zoneTap){ zoneTap(e.latlng); }
+  else if(mode==='zone'){ selVtx=-1; drawZoneEditor(); }
+});
+
+/* ---------- location ---------- */
+let watchId = null, lastFix = null;
+function updateZoneChip(){
+  const chip = $('zoneChip');
+  if(!lastFix || state.zone.length<3){ chip.hidden = true; return; }
+  const ok = inside(lastFix, state.zone);
+  chip.hidden = false;
+  chip.className = 'chip ' + (ok ? 'in' : 'out');
+  $('zoneChipText').textContent = ok ? 'You are inside the riding zone' : 'You are outside the riding zone';
+}
+$('locateBtn').onclick = ()=>{
+  const b = $('locateBtn');
+  if(watchId!==null){ navigator.geolocation.clearWatch(watchId); watchId=null; lastFix=null; layers.me.clearLayers(); b.classList.remove('on'); b.setAttribute('aria-pressed','false'); updateZoneChip(); return; }
+  if(!('geolocation' in navigator)){ toast('Location is not available in this browser'); return; }
+  b.classList.add('on'); b.setAttribute('aria-pressed','true');
+  let first = true;
+  watchId = navigator.geolocation.watchPosition(pos=>{
+    lastFix = [pos.coords.latitude, pos.coords.longitude];
+    layers.me.clearLayers();
+    L.circle(lastFix,{radius:pos.coords.accuracy, color:css('--escape'), weight:1, fillOpacity:.08, interactive:false}).addTo(layers.me);
+    L.marker(lastFix,{interactive:false, icon:L.divIcon({className:'',iconSize:[18,18],iconAnchor:[9,9],html:'<div class="me"></div>'})}).addTo(layers.me);
+    if(first){ map.setView(lastFix, Math.max(map.getZoom(),16)); first=false; }
+    updateZoneChip();
+  }, err=>{
+    toast(err.code===1 ? 'Location is turned off for this page. Allow it in your browser settings.' : 'Could not get your location');
+    b.classList.remove('on'); b.setAttribute('aria-pressed','false'); watchId=null;
+  }, {enableHighAccuracy:true, maximumAge:5000, timeout:20000});
+};
+$('fitBtn').onclick = ()=>{ if(state.zone.length>=3) map.fitBounds(L.latLngBounds(state.zone),{padding:[30,30]}); };
+
+/* ---------- layers panel ---------- */
+const vis = {zone:true, danger:true, meet:true, note:true, shortcut:true, escape:true};
+function listItems(){
+  const items = [
+    ...state.spots.map(s=>({kind:'spot', id:s.id, type:s.type, name:s.name||TYPES[s.type].label, ll:[s.lat,s.lng]})),
+    ...state.routes.map(r=>({kind:'route', id:r.id, type:r.type, name:r.name||TYPES[r.type].label, ll:r.pts[0], pts:r.pts}))
+  ];
+  if(!items.length) return '<li class="empty">Nothing marked yet. Use Add spot or Draw route below the map.</li>';
+  return items.map(it=>`<li><span class="sw" style="background:var(${TYPES[it.type].color})"></span><button class="link" type="button" data-kind="${it.kind}" data-id="${it.id}">${esc(it.name)}</button><span class="meta">${TYPES[it.type].short}</span></li>`).join('');
+}
+$('layersBtn').onclick = ()=>{
+  sheetDismissable = true;
+  openSheet(`
+    <h2 id="sheetTitle">Map layers</h2>
+    ${Object.keys(vis).map(k=>`<label class="toggle"><input type="checkbox" data-layer="${k}" ${vis[k]?'checked':''}> ${k==='zone'?'Riding zone':TYPES[k].label+'s'}</label>`).join('')}
+    <h3>Marked on the map</h3>
+    <ul class="list" id="itemList">${listItems()}</ul>
+    <h3>Worth marking first</h3>
+    <ul class="tips">
+      <li>Where the Pleasure House Rd bike path crosses or meets Shore Drive</li>
+      <li>Every place the group crosses Shore Drive</li>
+      <li>Lesner Bridge approaches, if they ride that far east</li>
+      <li>Beach access paths that work as a way off the beach</li>
+      <li>One meet-up point inside the zone where the group regroups</li>
+    </ul>
+    <h3>Backup</h3>
+    <p class="meta" style="margin:0 0 8px">${state.updated ? 'Last saved '+new Date(state.updated).toLocaleString() : 'Not saved yet'} · stored on this phone</p>
+    <div class="actions">
+      <button class="btn" id="bCopy" type="button">Copy map data</button>
+      <button class="btn" id="bPaste" type="button">Load map data</button>
+      <button class="btn" id="bDone" type="button">Close</button>
+    </div>
+    <div id="bArea"></div>`);
+  $('sheet').querySelectorAll('[data-layer]').forEach(cb=>cb.onchange=()=>{
+    const k=cb.dataset.layer; vis[k]=cb.checked; cb.checked ? layers[k].addTo(map) : map.removeLayer(layers[k]);
+  });
+  $('itemList').querySelectorAll('button.link').forEach(b=>b.onclick=()=>{
+    closeSheet();
+    if(b.dataset.kind==='spot'){ const s=state.spots.find(x=>x.id===b.dataset.id); map.setView([s.lat,s.lng],17); }
+    else { const r=state.routes.find(x=>x.id===b.dataset.id); map.fitBounds(L.latLngBounds(r.pts),{padding:[40,40]}); }
+  });
+  $('bDone').onclick = closeSheet;
+  $('bCopy').onclick = ()=>{
+    const txt = JSON.stringify({version:1, zone:state.zone, spots:state.spots, routes:state.routes, updated:state.updated});
+    navigator.clipboard.writeText(txt).then(()=>toast('Map data copied')).catch(()=>{
+      $('bArea').innerHTML = '<label for="bOut">Copy this text</label><textarea id="bOut" readonly></textarea>'; $('bOut').value=txt; $('bOut').select();
+    });
+  };
+  $('bPaste').onclick = ()=>{
+    $('bArea').innerHTML = '<label for="bIn">Paste map data</label><textarea id="bIn" placeholder="Paste the copied text here"></textarea><div class="actions"><button class="btn primary" id="bLoad" type="button">Replace this map</button></div>';
+    $('bLoad').onclick = ()=>{
+      try{ const d = JSON.parse($('bIn').value); if(!Array.isArray(d.zone)||!Array.isArray(d.spots)||!Array.isArray(d.routes)) throw 0;
+        state = {version:1, starter:false, zone:d.zone, spots:d.spots, routes:d.routes, updated:d.updated||null}; save('Map data loaded'); closeSheet(); render();
+      }catch(e){ toast('That text is not map data from this page'); }
+    };
+  };
+};
+
+/* ---------- wire up ---------- */
+$('zoneBtn').onclick = startZone;
+$('spotBtn').onclick = startSpot;
+$('routeBtn').onclick = startRoute;
+render();
+if(state.zone.length>=3) map.fitBounds(L.latLngBounds(state.zone),{padding:[20,20]});
+})();
+</script>
+</body>
+</html>
